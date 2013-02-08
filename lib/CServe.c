@@ -64,12 +64,13 @@ int ServerMainLoop(int tsocket, int maxClients, void (*externalHandler)(int,__CS
     
     for(;;){
         int currSock = accept(tsocket, (struct sockaddr*)&__CSERVE_cli_addr, (socklen_t*)&__CSERVE_clilen);
-		if(currSock){
+		if(!currSock){
 			printf("ERROR accepting\n");
             // cancel request for safety
         } else {
             int sindex = ComputeSessionNum();
             __CSERVE_task_data[sindex] = sindex;
+            __CSERVE_msgsock[sindex].sock = currSock;
             __CSERVE_msgsock[sindex].isConnected = TRUE;
             pthread_create(&__CSERVE_threads[sindex], NULL, __CSERVE_InteralThreadFunc, (void*)&__CSERVE_task_data[sindex]);
         }
