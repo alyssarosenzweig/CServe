@@ -127,22 +127,46 @@ static inline int reverseInt (int i) {
 }
 
 
-static inline unsigned char ReadByte(Socket sock){
+unsigned char ReadByte(Socket sock){
     unsigned char b;
     read(sock, &b, 1);
     return b;
 }
 
-static inline unsigned short ReadShort(Socket sock){
+ char ReadSByte(Socket sock){
+    char b;
+    read(sock, &b, 1);
+    return b;
+}
+
+unsigned short ReadShort(Socket sock){
     unsigned short s;
     read(sock, &s, 2);
     return reverseShort(s);
 }
 
-static inline unsigned int ReadInt(Socket sock){
+unsigned int ReadInt(Socket sock){
     unsigned int i;
     read(sock, &i, 4);
     return reverseInt(i);
+}
+
+void WriteByte(Socket sock, unsigned char b){
+    write(sock, &b, 1);
+}
+
+void WriteSByte(Socket sock, char b){
+    write(sock, &b, 1);
+}
+
+void WriteShort(Socket sock, unsigned short s){
+    unsigned short rs = reverseShort(s);
+    write(sock, &rs, 2);
+}
+
+void WriteInt(Socket sock, unsigned int s){
+    unsigned int ri = reverseInt(s);
+    write(sock, &ri, 4);
 }
 
 // general socket functions
