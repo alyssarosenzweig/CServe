@@ -10,8 +10,83 @@ __CSERVE_Session* __CSERVE_msgsock;
 int __CSERVE_highestSession = 0;
 void (*__CSERVE_clientHandler)(int,__CSERVE_Session);
 
-    struct sockaddr_in __CSERVE_serv_addr, __CSERVE_cli_addr;
+struct sockaddr_in __CSERVE_serv_addr, __CSERVE_cli_addr;
+char* ReadLine(int sock){
+    char* buf = calloc(1, 256);
+    char tchar;
+    int i = 0;
+    int currMax = 256;
+    while(read(sock,&tchar,1)){
+        buf[i++] = tchar;
+        if(tchar == '\n')
+            break;
+        if(i > currMax){
+            buf = realloc(buf, currMax*2);
+            currMax *= 2;
+        }
+    }
+    return buf;
+}
 
+char** ReadLineUntilDelim(Socket sock, char delim){
+    int maxLines = 32;
+    char** lines = calloc(1,maxLines);
+    int i = 0;
+    for(;;){
+        char* ln = ReadLine(sock);
+        if(i == maxLines){
+            maxLines *= 2;
+            lines = realloc(lines, maxLines);
+        }
+        if(ln[0] == delim)
+            break;
+        lines[i] = ln;
+        ++i;
+    }
+    return lines;
+}
+
+void SendToAllClients(char* str, int len){
+    int i = 0;
+    while(i < __CSERVE_highestSession){
+        if(__CSERVE_msgsock[i].isConnected)
+            write(__CSERVE_msgsock[i].sock, str, len);
+        ++i;
+    }
+}
+
+char** SplitRequest(char* str, char delimiter){
+    char* delim = calloc(1,1);
+    memcpy(delim, &delimiter,1);
+    char* pch = strtok(str, delim);
+    char** returnVal = (char**)calloc(sizeof(char*), 32);
+    int i = 0;
+    int maxParts = 32;
+    
+    while(pch != NULL){
+        printf("%d: %s\n", i, pch);
+        returnVal[i] = calloc(1, strlen(pch)+1);
+        memcpy(returnVal[i],pch,strlen(pch));
+        pch = strtok(NULL, delim);
+        ++i;
+        if(i == maxParts){
+            maxParts *= 2;
+            returnVal = realloc(returnVal, maxParts);
+        }
+    }
+    free(delim);
+    return returnVal;
+}
+
+
+void RecursiveFreeStringArr(char** str){
+    int i = 0;
+    while(str[i] != 0x00){
+        free(str[i]);
+        ++i;
+    }
+    free(str);
+}
 
 void* __CSERVE_InteralThreadFunc(void* client_t){
     int client = *(int*)client_t;

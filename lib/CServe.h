@@ -23,4 +23,11 @@ typedef struct{
     bool isConnected; // is it connected?
 }__CSERVE_Session;
 
+char* ReadLine(int sock);
+int CreateServerSocket(int port);
+int ServerMainLoop(int tsocket, int maxClients, void (*externalHandler)(int,__CSERVE_Session));
+char** SplitRequest(char* str, char delimiter);
+char** ReadLineUntilDelim(Socket sock, char delim);
+
+
 #endif
