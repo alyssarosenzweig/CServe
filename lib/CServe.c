@@ -11,6 +11,9 @@ int __CSERVE_highestSession = 0;
 void (*__CSERVE_clientHandler)(int,__CSERVE_Session);
 
 struct sockaddr_in __CSERVE_serv_addr, __CSERVE_cli_addr;
+
+// Pure-ASCII-only functions..
+
 char* ReadLine(int sock){
     char* buf = calloc(1, 256);
     char tchar;
@@ -46,15 +49,6 @@ char** ReadLineUntilDelim(Socket sock, char delim){
     return lines;
 }
 
-void SendToAllClients(char* str, int len){
-    int i = 0;
-    while(i < __CSERVE_highestSession){
-        if(__CSERVE_msgsock[i].isConnected)
-            write(__CSERVE_msgsock[i].sock, str, len);
-        ++i;
-    }
-}
-
 char** SplitRequest(char* str, char delimiter){
     char* delim = calloc(1,1);
     memcpy(delim, &delimiter,1);
@@ -87,6 +81,81 @@ void RecursiveFreeStringArr(char** str){
     }
     free(str);
 }
+
+
+// binary only functions
+
+// endian code samples based off of code by IBM Computers ( http://www.ibm.com/developerworks/aix/library/au-endianc/index.html?ca=drs- )
+#ifdef DEFAULT_BIG_ENDIAN
+// use big-endian checking
+static inline int is_correctendian(){
+	const int i = 1;
+	return ( (*(char*)&i) == 0);
+}
+#else
+static inline int is_correctendian(){
+    const int i = 0;
+    return ((*(char*)&i) != 0);
+}
+#endif
+
+static inline short reverseShort (short i) {
+    unsigned char c1, c2;
+	
+    if (is_correctendian()) {
+        return i;
+    } else {
+        c1 = i & 255;
+        c2 = (i >> 8) & 255;
+	}
+	return ((int)c1 << 8) | c2;
+}
+
+static inline int reverseInt (int i) {
+    unsigned char c1, c2, c3, c4;
+    
+    if (is_correctendian()) {
+        return i;
+    } else {
+        c1 = i & 255;
+        c2 = (i >> 8) & 255;
+        c3 = (i >> 16) & 255;
+        c4 = (i >> 24) & 255;
+        
+        return ((int)c1 << 24) + ((int)c2 << 16) + ((int)c3 << 8) + c4;
+    }
+}
+
+
+static inline unsigned char ReadByte(Socket sock){
+    unsigned char b;
+    read(sock, &b, 1);
+    return b;
+}
+
+static inline unsigned short ReadShort(Socket sock){
+    unsigned short s;
+    read(sock, &s, 2);
+    return reverseShort(s);
+}
+
+static inline unsigned int ReadInt(Socket sock){
+    unsigned int i;
+    read(sock, &i, 4);
+    return reverseInt(i);
+}
+
+// general socket functions
+
+void SendToAllClients(char* str, int len){
+    int i = 0;
+    while(i < __CSERVE_highestSession){
+        if(__CSERVE_msgsock[i].isConnected)
+            write(__CSERVE_msgsock[i].sock, str, len);
+        ++i;
+    }
+}
+
 
 void* __CSERVE_InteralThreadFunc(void* client_t){
     int client = *(int*)client_t;
