@@ -1,16 +1,24 @@
+#define MAX_SERVER_SOCKETS 2
+
 #include "CServe.h"
 
-pthread_t* __CSERVE_threads;
-int __CSERVE_clilen;
+pthread_t* __CSERVE_threads = NULL;
+int __CSERVE_clilens[MAX_SERVER_SOCKETS];
+
 
 long* __CSERVE_task_data;
 
-__CSERVE_Session* __CSERVE_msgsock;
+__CSERVE_Session* __CSERVE_msgsock = NULL;
 
 int __CSERVE_highestSession = 0;
-void (*__CSERVE_clientHandler)(int,__CSERVE_Session);
+void (*__CSERVE_clientHandlers[MAX_SERVER_SOCKETS])(int,__CSERVE_Session);
 
-struct sockaddr_in __CSERVE_serv_addr, __CSERVE_cli_addr;
+struct sockaddr_in __CSERVE_serv_addrs[MAX_SERVER_SOCKETS], __CSERVE_cli_addrs[MAX_SERVER_SOCKETS];
+
+int* __CSERVE_socketArrNum = NULL;
+
+
+int numberOfServerSocks = 0;
 
 // Pure-ASCII-only functions..
 
@@ -19,13 +27,16 @@ char* ReadLine(int sock){
     char tchar;
     int i = 0;
     int currMax = 256;
+    int hardMax = 2048;
     while(read(sock,&tchar,1)){
         buf[i++] = tchar;
         if(tchar == '\n')
             break;
-        if(i > currMax){
+        if(i > currMax && currMax < hardMax){
             buf = realloc(buf, currMax*2);
             currMax *= 2;
+        } else if(hardMax < currMax){
+            break;
         }
     }
     return buf;
@@ -49,7 +60,7 @@ char** ReadLineUntilDelim(Socket sock, char delim){
     return lines;
 }
 
-char** SplitRequest(char* str, char delimiter){
+char** SplitRequestSafe(char* str, char delimiter, int* len){
     char* delim = calloc(1,1);
     memcpy(delim, &delimiter,1);
     char* pch = strtok(str, delim);
@@ -58,7 +69,6 @@ char** SplitRequest(char* str, char delimiter){
     int maxParts = 32;
     
     while(pch != NULL){
-        printf("%d: %s\n", i, pch);
         returnVal[i] = calloc(1, strlen(pch)+1);
         memcpy(returnVal[i],pch,strlen(pch));
         pch = strtok(NULL, delim);
@@ -68,6 +78,8 @@ char** SplitRequest(char* str, char delimiter){
             returnVal = realloc(returnVal, maxParts);
         }
     }
+    if(len != NULL)
+        *len = i;
     free(delim);
     return returnVal;
 }
@@ -183,35 +195,48 @@ void SendToAllClients(char* str, int len){
 
 void* __CSERVE_InteralThreadFunc(void* client_t){
     int client = *(int*)client_t;
-    __CSERVE_clientHandler(client, __CSERVE_msgsock[client]);
+    __CSERVE_clientHandlers[__CSERVE_socketArrNum[client]](client, __CSERVE_msgsock[client]);
     __CSERVE_msgsock[client].isConnected = FALSE;
     pthread_exit(NULL);
 }
 
-int CreateServerSocket(int port){
+#ifdef UNPREFIX_INTERNAL
+ServerSocket* CreateServerSocket(int port){
+#else
+__CSERVE_ServerSocket* CreateServerSocket(int port){
+#endif
+    int serverSockNum = ++numberOfServerSocks;
     int tsocket = socket(AF_INET, SOCK_STREAM, 0);
 
 	if(tsocket < 0){
 		printf("ERROR Socketing\n");
-		return -1;
-	}
+        return NULL;
+    }
 	signal(SIGPIPE, SIG_IGN);
 	setsockopt(tsocket, SOL_SOCKET, SO_REUSEADDR, (char*)1, 4);
 	setsockopt(tsocket, SOL_SOCKET, SO_LINGER, (char*)0, 4);
-	bzero((char*)&__CSERVE_serv_addr, sizeof(__CSERVE_serv_addr));
-	__CSERVE_serv_addr.sin_family = AF_INET;
-	__CSERVE_serv_addr.sin_addr.s_addr = INADDR_ANY;
-	__CSERVE_serv_addr.sin_port = htons(port);
-	if(bind(tsocket, (struct sockaddr*)&__CSERVE_serv_addr, sizeof(__CSERVE_serv_addr)) < 0){
+	bzero((char*)&__CSERVE_serv_addrs[serverSockNum], sizeof(__CSERVE_serv_addrs[serverSockNum]));
+	__CSERVE_serv_addrs[serverSockNum].sin_family = AF_INET;
+	__CSERVE_serv_addrs[serverSockNum].sin_addr.s_addr = INADDR_ANY;
+	__CSERVE_serv_addrs[serverSockNum].sin_port = htons(port);
+	if(bind(tsocket, (struct sockaddr*)&__CSERVE_serv_addrs[serverSockNum], sizeof(__CSERVE_serv_addrs[serverSockNum])) < 0){
 		printf("ERROR Binding\n");
-		return -1;
+		return NULL;
 	} else {
 		printf("Binded\n");
 	}
 	fflush(stdout);
 	listen(tsocket, 5);
-	__CSERVE_clilen = sizeof(__CSERVE_cli_addr);
-    return tsocket;
+	__CSERVE_clilens[serverSockNum] = sizeof(__CSERVE_cli_addrs[serverSockNum]);
+    
+#ifdef UNPREFIX_INTERNAL
+    ServerSocket* retVal = calloc(1, sizeof(ServerSocket));
+#else
+    __CSERVE_ServerSocket* retVal = calloc(1, sizeof(__CSERVE_ServerSocket));
+#endif
+    retVal->sock = tsocket;
+    retVal->serverSocketNumber = serverSockNum;
+    return retVal;
 }
 
 static inline int ComputeSessionNum(){
@@ -224,14 +249,16 @@ static inline int ComputeSessionNum(){
     return i;
 }
 
-int ServerMainLoop(int tsocket, int maxClients, void (*externalHandler)(int,__CSERVE_Session)){
-    __CSERVE_msgsock = calloc(sizeof(__CSERVE_Session), maxClients);
-    __CSERVE_clientHandler = externalHandler;
-    __CSERVE_threads = calloc(sizeof(pthread_t), maxClients);
-    __CSERVE_task_data = calloc(sizeof(long), maxClients);
+int ServerMainLoop(__CSERVE_ServerSocket tsocket, int maxClients, void (*externalHandler)(int,__CSERVE_Session)){
+    if(__CSERVE_msgsock == NULL) __CSERVE_msgsock = calloc(sizeof(__CSERVE_Session), maxClients);
+    __CSERVE_clientHandlers[tsocket.serverSocketNumber] = externalHandler;
+    if(__CSERVE_threads == NULL) __CSERVE_threads = calloc(sizeof(pthread_t), maxClients);
+    if(__CSERVE_task_data == NULL) __CSERVE_task_data = calloc(sizeof(long), maxClients);
+    if(__CSERVE_socketArrNum == NULL) __CSERVE_socketArrNum = calloc(sizeof(int), maxClients);
+
     
     for(;;){
-        int currSock = accept(tsocket, (struct sockaddr*)&__CSERVE_cli_addr, (socklen_t*)&__CSERVE_clilen);
+        int currSock = accept(tsocket.sock, (struct sockaddr*)&__CSERVE_cli_addrs[tsocket.serverSocketNumber], (socklen_t*)&__CSERVE_clilens[tsocket.serverSocketNumber]);
 		if(!currSock){
 			printf("ERROR accepting\n");
             // cancel request for safety
@@ -240,6 +267,7 @@ int ServerMainLoop(int tsocket, int maxClients, void (*externalHandler)(int,__CS
             __CSERVE_task_data[sindex] = sindex;
             __CSERVE_msgsock[sindex].sock = currSock;
             __CSERVE_msgsock[sindex].isConnected = TRUE;
+            __CSERVE_socketArrNum[sindex] = tsocket.serverSocketNumber;
             pthread_create(&__CSERVE_threads[sindex], NULL, __CSERVE_InteralThreadFunc, (void*)&__CSERVE_task_data[sindex]);
         }
 	}
