@@ -20,6 +20,102 @@ int* __CSERVE_socketArrNum = NULL;
 
 int numberOfServerSocks = 0;
 
+// SMTP Instant Code
+#ifdef ENABLE_INSTANTSMTP
+InstantSMTP_Settings* __CSERVE_InstantSMTP_Settings = NULL;
+
+void __CSERVE_InstantSMTP_HandleRequest(int clientID, __CSERVE_Session session){
+    write(session.sock, __CSERVE_InstantSMTP_Settings->banner, strlen(__CSERVE_InstantSMTP_Settings->banner));
+    
+    bool hasHandshaked = 0;
+    bool sentRecipents = 0;
+    bool sentSender = 0;
+    bool sentData = 0;
+    
+    int genMode = __CSERVE_INSTANTSMTP_COMMAND_MODE;
+    
+    char* mailFrom;
+    
+    char** recipents = calloc(1, __CSERVE_INSTANTSMTP_MAX_RECIPENTS);
+    int recipentNum = 0;
+    
+    char commandbuffer[512];
+    for(;;){
+        char* txtrequest = ReadLine(session.sock);
+        if(genMode == __CSERVE_INSTANTSMTP_COMMAND_MODE){
+            int numberOfInputs = 0;
+            char** request = SplitRequestSafe(txtrequest,' ', &numberOfInputs);
+            if(numberOfInputs > 0){
+                char* command = request[0];
+                
+                
+                
+                if(strequ(command, "HELO")){
+                    sprintf(commandbuffer, "250 Hello\n");
+                    write(session.sock, commandbuffer, strlen(commandbuffer));
+                    hasHandshaked = 1;
+                } else if(strequ(command, "EHLO")){
+                    sprintf(commandbuffer, "250 Hello\n");
+                    write(session.sock, commandbuffer, strlen(commandbuffer));
+                    hasHandshaked = 1;
+                } else if(strequ(command, "RCPT") && hasHandshaked){
+                    if(recipentNum < __CSERVE_INSTANTSMTP_MAX_RECIPENTS && numberOfInputs > 1){
+                        recipents[recipentNum] = calloc(1, strlen(request[1]));
+                        memcpy(recipents[recipentNum], request[1], strlen(request[1]));
+                        ++recipentNum;
+                    }
+                    sprintf(commandbuffer, "250 Ok\n");
+                    write(session.sock, commandbuffer, strlen(commandbuffer));
+                    sentRecipents = 1;
+                    
+                } else if(strequ(command, "MAIL") && hasHandshaked){
+                    if(numberOfInputs > 1){
+                        mailFrom = calloc(1, strlen(request[1]));
+                        memcpy(mailFrom, request[1], strlen(request[1]));
+                        sprintf(commandbuffer, "250 Ok\n");
+                        write(session.sock, commandbuffer, strlen(commandbuffer));
+                        sentSender = 1;
+                    }
+                } else if(strequ(command, "DATA") && hasHandshaked && sentRecipents && sentSender){
+                    genMode = __CSERVE_INSTANTSMTP_DATA_MODE;
+                    sprintf(commandbuffer, "354 End Data with \r\n.\r\n");
+                    write(session.sock, commandbuffer, strlen(commandbuffer));
+                } else if(strequ(command, "QUIT")){
+                    sprintf(commandbuffer, "221 Bye\n");
+                    write(session.sock, commandbuffer, strlen(commandbuffer));
+                    close(session.sock);
+                    break;
+                }
+            }
+        }else if(genMode == __CSERVE_INSTANTSMTP_DATA_MODE){
+            if(txtrequest[0] == '.'){
+                // end data
+                genMode = __CSERVE_INSTANTSMTP_COMMAND_MODE;
+                sentData = 1;
+                sprintf(commandbuffer, "250 Ok\n");
+                write(session.sock, commandbuffer, strlen(commandbuffer));
+            } else {
+                printf("Data: %s", txtrequest);
+            }
+            
+        }
+    }
+
+}
+
+int InstantSMTP(InstantSMTP_Settings* settings, int port, int maxClients){
+    __CSERVE_InstantSMTP_Settings = settings;
+    __CSERVE_ServerSocket* __CSERVE_InstantSMTP_sock = CreateServerSocket(port);
+    if(__CSERVE_InstantSMTP_sock == NULL){
+        printf("Instant SMTP Internal Error: aborting...\n");
+        return -1;
+    } else {
+        ServerMainLoop(*__CSERVE_InstantSMTP_sock, maxClients, __CSERVE_InstantSMTP_HandleRequest);
+    }
+    return -1;
+}
+#endif
+
 // Pure-ASCII-only functions..
 
 char* ReadLine(int sock){

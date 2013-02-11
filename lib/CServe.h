@@ -15,6 +15,7 @@
 
 // eventually be set in autogen config header
 #define UNPREFIX_INTERNAL
+#define ENABLE_INSTANTSMTP
 
 // helpful macros
 
@@ -38,6 +39,17 @@ typedef struct{
     Socket sock;
     int serverSocketNumber;
 }__CSERVE_ServerSocket;
+
+#ifdef ENABLE_INSTANTSMTP
+
+#define __CSERVE_INSTANTSMTP_DATA_MODE 0
+#define __CSERVE_INSTANTSMTP_COMMAND_MODE 1
+#define __CSERVE_INSTANTSMTP_MAX_RECIPENTS 8
+
+typedef struct{
+    char* banner; // smtp banner
+}InstantSMTP_Settings;
+#endif
 
 
 #ifdef UNPREFIX_INTERNAL
