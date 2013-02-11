@@ -78,7 +78,7 @@ void __CSERVE_InstantSMTP_HandleRequest(int clientID, __CSERVE_Session session){
                     }
                 } else if(strequ(command, "DATA") && hasHandshaked && sentRecipents && sentSender){
                     genMode = __CSERVE_INSTANTSMTP_DATA_MODE;
-                    sprintf(commandbuffer, "354 End Data with \r\n.\r\n");
+                    sprintf(commandbuffer, "354 Ok");
                     write(session.sock, commandbuffer, strlen(commandbuffer));
                 } else if(strequ(command, "QUIT")){
                     sprintf(commandbuffer, "221 Bye\n");
@@ -92,7 +92,7 @@ void __CSERVE_InstantSMTP_HandleRequest(int clientID, __CSERVE_Session session){
                 // end data
                 genMode = __CSERVE_INSTANTSMTP_COMMAND_MODE;
                 sentData = 1;
-                sprintf(commandbuffer, "250 Ok\n");
+                sprintf(commandbuffer, "250 Recieved message safely\n");
                 write(session.sock, commandbuffer, strlen(commandbuffer));
             } else {
                 printf("Data: %s", txtrequest);
